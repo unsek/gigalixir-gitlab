@@ -1,0 +1,78 @@
+stages:
+  - deploy
+
+deploy_review:
+  stage: deploy
+  image: boreddevco/gigalixir-ubuntu:20.04
+  before_script:
+    - echo "Setup SSH"
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - printf "Host *\n StrictHostKeyChecking no" > ~/.ssh/config
+    - echo -e "Logging into gigalixir"
+    - echo "$GIGALIXIR_LOGIN_PASSWORD"
+    - gigalixir login -e "$GIGALIXIR_LOGIN_EMAIL" -y -p "$GIGALIXIR_LOGIN_PASSWORD"
+  script:
+    - echo "Shortening branch name"
+    - SHORTENED_BRANCH_NAME=$(echo "$CI_COMMIT_REF_SLUG" | awk -F'-' '{print $1"-"$2}')
+    - echo "Create regex pattern"
+    - NAME_PATTERN="[\\s\\S]+-$SHORTENED_BRANCH_NAME"
+    - echo "Check if Gigalixir app exists for this MR"
+    - APP_NAME=$(gigalixir apps | jq --arg NAME_PATTERN "$NAME_PATTERN" -r '.[] | select(.unique_name | test($NAME_PATTERN)) | .unique_name ')
+    - if ["$APP_NAME" = ""]; then echo "None found. Generating unique app name"; fi; echo "Existing app found"
+    - if [ "$APP_NAME" = "" ]; then APP_NAME="$(head -c 512 /dev/urandom | LC_CTYPE=C tr -cd 'a-z' | head -c 5)-$SHORTENED_BRANCH_NAME"; fi;
+    - echo "Creating Gigalixir app $APP_NAME"
+    - gigalixir create --name $APP_NAME || gigalixir git:remote $APP_NAME
+    - echo "Creating database"
+    - if [ "$(gigalixir pg -a $APP_NAME)" = "[]" ]; then gigalixir pg:create -a $APP_NAME; fi
+    - while true; do if [[ `gigalixir pg -a $APP_NAME | grep AVAILABLE | wc -l` == 1 ]]; then break; fi; sleep 2; done
+    - echo "Pushing"
+    - git push -f gigalixir HEAD:refs/heads/master
+    - echo "Running migrations"
+    - while true; do if [[ `gigalixir ps -a $APP_NAME | grep Healthy | wc -l` == 1 ]]; then break; fi; sleep 2; done
+    - gigalixir ps:migrate -a $APP_NAME
+    - DYNAMIC_ENVIRONMENT_URL="https://$APP_NAME.gigalixirapp.com"
+    - echo "DYNAMIC_ENVIRONMENT_URL=$DYNAMIC_ENVIRONMENT_URL" >> deploy.env
+  artifacts:
+    reports:
+      dotenv: deploy.env
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    url: $DYNAMIC_ENVIRONMENT_URL
+    on_stop: stop_review
+  when: manual
+  only:
+    - branches
+  except:
+    - master
+
+stop_review:
+  stage: deploy
+  image: boreddevco/gigalixir-ubuntu:20.04
+  before_script:
+    - echo "Logging into gigalixir"
+    - gigalixir login -e "$GIGALIXIR_LOGIN_EMAIL" -y -p "$GIGALIXIR_LOGIN_PASSWORD"
+  script:
+    - SHORTENED_BRANCH_NAME=$(echo "$CI_COMMIT_REF_SLUG" | awk -F'-' '{print $1"-"$2}')
+    - echo "Finding app name with $SHORTENED_BRANCH_NAME"
+    - NAME_PATTERN="[\\s\\S]+-$SHORTENED_BRANCH_NAME"
+    - APP_NAME=$(gigalixir apps | jq --arg NAME_PATTERN "$NAME_PATTERN" -r '.[] | select(.unique_name | test($NAME_PATTERN)) | .unique_name ')
+    - echo "Scaling app $APP_NAME to 0 replicas"
+    - gigalixir ps:scale --replicas=0 -a $APP_NAME
+    - echo "Looking for databases"
+    - DATABASE_IDS=$(gigalixir pg -a $APP_NAME | jq -r '.[] | select(.state == "AVAILABLE") | .id')
+    - for db in $DATABASE_IDS; do echo "Deleting database ${DATABASE_IDS}"; echo 'y' | gigalixir pg:destroy -a $APP_NAME -d $db; done
+    - echo "Waiting for deletion"
+    - while true; do if [ "$(gigalixir pg -a $APP_NAME)" = "[]" ]; then break; fi; sleep 2; done
+    - echo "Deleting $APP_NAME"
+    - echo 'y' | gigalixir apps:destroy -a $APP_NAME
+  when: manual
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    action: stop
+  only:
+    - branches
+  except:
+    - master
