@@ -21,7 +21,7 @@ deploy_review:
     - NAME_PATTERN="[\\s\\S]+-$SHORTENED_BRANCH_NAME"
     - echo "Check if Gigalixir app exists for this MR"
     - APP_NAME=$(gigalixir apps | jq --arg NAME_PATTERN "$NAME_PATTERN" -r '.[] | select(.unique_name | test($NAME_PATTERN)) | .unique_name ')
-    - if ["$APP_NAME" = ""]; then echo "None found. Generating unique app name"; fi; echo "Existing app found"
+    - if [ "$APP_NAME" = "" ]; then echo "None found. Generating unique app name"; fi; echo "Existing app found"
     - if [ "$APP_NAME" = "" ]; then APP_NAME="$(head -c 512 /dev/urandom | LC_CTYPE=C tr -cd 'a-z' | head -c 5)-$SHORTENED_BRANCH_NAME"; fi;
     - echo "Creating Gigalixir app $APP_NAME"
     - gigalixir create --name $APP_NAME || gigalixir git:remote $APP_NAME
@@ -30,9 +30,9 @@ deploy_review:
     - while true; do if [[ `gigalixir pg -a $APP_NAME | grep AVAILABLE | wc -l` == 1 ]]; then break; fi; sleep 2; done
     - echo "Pushing"
     - git push -f gigalixir HEAD:refs/heads/master
-    - echo "Running migrations"
+    - echo "Waiting for app to be healthy"
     - while true; do if [[ `gigalixir ps -a $APP_NAME | grep Healthy | wc -l` == 1 ]]; then break; fi; sleep 2; done
-    - gigalixir ps:migrate -a $APP_NAME
+    - echo "Setting environment URL"
     - DYNAMIC_ENVIRONMENT_URL="https://$APP_NAME.gigalixirapp.com"
     - echo "DYNAMIC_ENVIRONMENT_URL=$DYNAMIC_ENVIRONMENT_URL" >> deploy.env
   artifacts:
