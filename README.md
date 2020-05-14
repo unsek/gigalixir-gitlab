@@ -12,6 +12,10 @@ Branch: `132-add-review-app-to-ci`
 
 App name: `lajsd-132-add`
 
+## Why name it like that?
+
+The reason why is that Gigalixir has an app name limit. If it's too long then it would cause the provisioning of the database to get stuck at `PENDING_CREATE`, and when trying to delete would also be stuck at `PENDING_DELETE`. I had to discover this the hard way! :)
+
 ## How to use
 
 Copy the files over to the root directory of the project. In `rel/overlays/Procfile` be sure to change `<APP_NAME>` with your project's app name as a module. `my_app` would be `MyApp`.
