@@ -21,7 +21,7 @@ Copy the files over to the root directory of the project. In `rel/overlays/Procf
 Set these environment variables in the CI/CD.
 
 | Name  | Description  |
-|---|---|---|
+|---|---|
 | `GIALIXIR_LOGIN_EMAIL`  | Your Gigalixir account's email  |
 | `GIGALIXIR_LOGIN_PASSWORD`  | Account password  |
 | `SSH_PRIVATE_KEY`   | SSH private key to access your Gigalixir servers  |
